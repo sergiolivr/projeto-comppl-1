@@ -1,0 +1,18 @@
+# Produtos de build (regeráveis)
+trabalho_pratico/build/
+trabalho_pratico/csv2bin
+trabalho_pratico/bin2csv
+
+# Matrizes de teste (grandes; regeráveis com `make dados`)
+trabalho_pratico/dados/
+
+# Ambiente Python local (matplotlib/numpy), específico da máquina
+trabalho_pratico/.venv/
+
+# Arquivos temporários
+*.parcial
+__pycache__/
+*.pyc
+
+# Os artefatos de entrega (maquinas/aluno1/{bin,asm,specs}, benchmark,
+# figuras e tabelas) SÃO versionados de propósito: fazem parte da entrega.

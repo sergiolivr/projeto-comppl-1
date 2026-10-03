@@ -1,0 +1,32 @@
+# Ambiente de medicao — 2026-10-02T21:11:06-03:00
+
+## uname -a
+Linux fedora 6.19.10-300.fc44.x86_64 #1 SMP PREEMPT_DYNAMIC Wed Mar 25 18:23:49 UTC 2026 x86_64 GNU/Linux
+
+## locale
+LANG=pt_BR.UTF-8
+LC_CTYPE="C"
+LC_NUMERIC="C"
+LC_TIME="C"
+LC_COLLATE="C"
+LC_MONETARY="C"
+LC_MESSAGES="C"
+LC_PAPER="C"
+LC_NAME="C"
+LC_ADDRESS="C"
+LC_TELEPHONE="C"
+LC_MEASUREMENT="C"
+LC_IDENTIFICATION="C"
+LC_ALL=C
+
+## governor de frequencia (cpu0)
+performance
+
+## driver de frequencia
+intel_pstate
+
+## python3
+Python 3.14.3
+
+## filesystem do pacote
+/dev/sda8      btrfs  23501824 17604124   5535956  77% /home
