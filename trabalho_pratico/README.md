@@ -25,7 +25,10 @@ trabalho_pratico/
 │   ├── gerar_asm.sh      objdump/gcc -S → maquinas/<aluno>/asm/ + contagens
 │   ├── bench.sh          benchmark completo → maquinas/<aluno>/benchmark_<aluno>.csv
 │   ├── comparar_saidas.py comparação com tolerância entre dois .bin
-│   └── gerar_graficos.py figuras/ e tabelas/ do relatório
+│   ├── gerar_graficos.py figuras/ e tabelas/ do relatório
+│   └── gerar_relatorio.sh  relatorio.pdf a partir de relatorio/relatorio.html
+├── relatorio/            fonte do relatório (HTML + CSS de impressão)
+├── relatorio.pdf         relatório final (gerado)
 ├── dados/                matrizes de teste (gerado; `make limpar-dados`)
 ├── figuras/              figuras do relatório (gerado)
 ├── tabelas/              tabelas-base do relatório (gerado)
@@ -41,6 +44,8 @@ trabalho_pratico/
   - sem root (usado neste repositório): `python3 -m venv .venv &&
     .venv/bin/pip install matplotlib numpy` — o Makefile detecta o `.venv`
     automaticamente (`make graficos` passa a usar `.venv/bin/python`).
+- Para `make relatorio`: Google Chrome/Chromium (headless; usado via
+  `--print-to-pdf`) ou LibreOffice como alternativa.
 - Opcional: `valgrind` (verificação de vazamentos), `taskset` (fixação de CPU
   no benchmark — usado automaticamente quando disponível).
 
@@ -90,6 +95,7 @@ make specs          # perfil da máquina  → maquinas/aluno1/specs/
 make asm            # desmontagens        → maquinas/aluno1/asm/
 make bench          # benchmark           → maquinas/aluno1/benchmark_aluno1.csv
 make graficos       # figuras e tabelas   → figuras/ e tabelas/
+make relatorio      # relatorio.pdf       (Chrome/Chromium headless; LibreOffice como alternativa)
 make entrega        # tudo acima, em ordem
 ```
 

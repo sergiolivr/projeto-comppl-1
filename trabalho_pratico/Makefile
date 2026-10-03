@@ -114,6 +114,9 @@ bench: all
 graficos:
 	$(PYTHON) scripts/gerar_graficos.py
 
+relatorio: graficos
+	scripts/gerar_relatorio.sh
+
 entrega: all specs asm bench graficos
 
 clean:
@@ -134,9 +137,10 @@ ajuda:
 	@echo "  dados          gera as matrizes de teste em dados/csv/ (ORDENS=\"...\")"
 	@echo "  bench          executa o benchmark completo (ORDENS=\"...\" REPS=N)"
 	@echo "  graficos       gera figuras/ e tabelas/ para o relatório"
+	@echo "  relatorio      gera relatorio.pdf a partir de relatorio/relatorio.html (Chrome headless)"
 	@echo "  entrega        all + specs + asm + bench + graficos"
 	@echo "  clean          remove build/ e os executáveis da raiz"
 	@echo "  limpar-dados   remove dados/ (matrizes de teste)"
 	@echo "  distclean      clean + limpar-dados + artefatos gerados"
 
-.PHONY: all specs asm dados bench graficos entrega clean limpar-dados distclean ajuda
+.PHONY: all specs asm dados bench graficos relatorio entrega clean limpar-dados distclean ajuda

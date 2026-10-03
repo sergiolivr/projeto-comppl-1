@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Relatório — Otimização de Produto Matricial</title>
+<style>
+    @page { size: A4; margin: 17mm 15mm 16mm 15mm; }
+
+    :root { --tinta: #141414; --tinta2: #4a4a48; --suave: #7c7a75; --linha: #dcdbd4; --fundo-cod: #f6f6f3; }
+
+    html { font-size: 10pt; }
+    body {
+        font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+        color: var(--tinta); line-height: 1.42; margin: 0;
+    }
+    h1 { font-size: 17pt; margin: 0 0 2mm 0; line-height: 1.2; }
+    h2 { font-size: 12.5pt; margin: 5.5mm 0 2mm 0; padding-bottom: 1mm; border-bottom: 0.4pt solid var(--linha); }
+    h3 { font-size: 10.5pt; margin: 4.5mm 0 1.5mm 0; }
+    p { margin: 0 0 2.2mm 0; text-align: justify; }
+    ul, ol { margin: 0 0 2.2mm 0; padding-left: 5.5mm; }
+    li { margin-bottom: 0.8mm; text-align: justify; }
+
+    .capa { border: 0.6pt solid var(--linha); border-radius: 2mm; padding: 5mm 6mm; margin-bottom: 6mm; }
+    .capa .sub { color: var(--tinta2); font-size: 9.5pt; }
+    .capa table { margin: 3mm 0 0 0; border: 0; }
+    .capa td { border: 0; padding: 0.4mm 3mm 0.4mm 0; font-size: 9pt; color: var(--tinta2); }
+
+    code, pre { font-family: "DejaVu Sans Mono", "Liberation Mono", monospace; }
+    code { font-size: 8.6pt; background: var(--fundo-cod); padding: 0 0.6mm; border-radius: 0.8mm; }
+    pre { font-size: 7.4pt; line-height: 1.32; background: var(--fundo-cod); border-left: 2.5pt solid var(--linha);
+          padding: 1.8mm 3mm; margin: 1.2mm 0 2.4mm 0; white-space: pre-wrap; overflow-wrap: break-word; }
+    pre .rot { color: var(--suave); }
+
+    table.dados { width: 100%; border-collapse: collapse; margin: 1.5mm 0 3.5mm 0; font-size: 8.6pt; }
+    table.dados th { background: #efeee9; text-align: left; font-weight: 600; }
+    table.dados th, table.dados td { border: 0.4pt solid var(--linha); padding: 1.1mm 1.8mm; }
+    table.dados td.num, table.dados th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.dados caption { caption-side: top; text-align: left; font-size: 8.4pt; color: var(--tinta2); padding-bottom: 1mm; }
+
+    figure { margin: 2mm 0 4mm 0; break-inside: avoid; }
+    figure img { width: 100%; }
+    figcaption { font-size: 8.4pt; color: var(--tinta2); margin-top: 1mm; }
+
+    .duas-col { display: flex; gap: 3mm; break-inside: avoid; }
+    .duas-col > div { flex: 1 1 0; min-width: 0; }
+    .duas-col pre { font-size: 6.8pt; }
+    .duas-col .titulo { font-size: 8.4pt; font-weight: 600; margin-bottom: 0.8mm; color: var(--tinta2); }
+
+    .caixa { border: 0.4pt solid var(--linha); border-left: 2.5pt solid #c9c7bf; background: #fafaf8;
+             padding: 2.5mm 3.5mm; margin: 2mm 0 3.5mm 0; font-size: 9.2pt; }
+    .caixa p { margin-bottom: 1.2mm; }
+    .rodape { margin-top: 4mm; padding-top: 2mm; border-top: 0.4pt solid var(--linha);
+              font-size: 8pt; color: var(--suave); }
+    .quebra { break-before: page; }
+</style>
+</head>
+<body>
+
+<div class="capa">
+    <h1>Otimização de Produto Matricial: E/S binária, alinhamento e vetorização SIMD</h1>
+    <p class="sub">Trabalho prático — multiplicação de matrizes densas em <code>float</code> sob quatro níveis de otimização do GCC,
+    com caracterização experimental da máquina e dissecação do código de máquina gerado.</p>
+    <table>
+        <tr><td><b>Integrante:</b> aluno1 (grupo de 1 integrante)</td>
+            <td><b>Data:</b> 02/10/2026</td></tr>
+        <tr><td><b>CPU:</b> Intel Core i5-10210U (Comet Lake-U, AVX2 + FMA)</td>
+            <td><b>Compilador:</b> GCC 16.2.1 (Red Hat)</td></tr>
+        <tr><td><b>Sistema:</b> Fedora 44, kernel 6.19.10, ext. de arquivos btrfs</td>
+            <td><b>Artefatos:</b> <code>maquinas/aluno1/</code></td></tr>
+    </table>
+</div>
+
+<h2>1. Objetivos e organização do trabalho</h2>
+<p>
+O trabalho implementa, em C11 estrito, um pipeline completo de multiplicação de matrizes densas
+<code>C = A&times;B</code> em precisão simples: dois utilitários de conversão entre os formatos texto (CSV) e binário
+proprietário, o motor de multiplicação com métricas padronizadas de tempo e vazão, e quatro binários do mesmo
+código-fonte compilados sob níveis crescentes de otimização. O objetivo experimental é quantificar,
+nesta máquina, o efeito de três alavancas independentes:
+</p>
+<ol>
+    <li><b>Formato de persistência</b> — custo de E/S do texto <code>%.6f</code> contra o bloco binário contíguo;</li>
+    <li><b>Otimização escalar</b> — o salto de <code>-O0</code> para <code>-O2</code>/<code>-O3</code> (registradores, <i>inlining</i>, vetorização automática);</li>
+    <li><b>Vetorização SIMD e FMA</b> — o efeito de <code>-march=native -ffast-math -funroll-loops</code> sobre AVX2+FMA, incluindo o impacto da hierarquia de cache.</li>
+</ol>
+<p>
+O pacote de entrega segue a estrutura do enunciado: <code>src/</code> (fontes e módulos), <code>Makefile</code>,
+<code>scripts/</code> (geração de dados, benchmark e coleta), <code>maquinas/aluno1/</code> (specs, desmontagens,
+binários e <code>benchmark_aluno1.csv</code>), <code>figuras/</code> e <code>tabelas/</code> (insumos deste relatório).
+</p>
+
+<h2>2. Descrição da implementação em C</h2>
+
+<h3>2.1 Disposição linear contígua e alinhamento</h3>
+<p>
+Cada matriz é um buffer único de <code>m&times;n</code> <code>float</code> em ordem <i>row-major</i>, encapsulado numa
+struct com dimensões — exatamente o layout do payload binário, o que permite ler e gravar o payload com
+uma única chamada de E/S, sem cópia. Os buffers são alocados com
+<code>posix_memalign(&amp;p, 64, ...)</code>: 64 bytes cobrem a linha de cache x86-64, o registro AVX2 (32 B)
+e permitiriam registros AVX-512 (64 B) em máquinas que os tenham. Dentro do kernel, o compilador recebe a
+garantia de alinhamento via <code>__builtin_assume_aligned</code>, e os ponteiros locais são anotados
+<code>restrict</code> — o contrato de não sobreposição entre A, B e C é o que autoriza o vetorizador a tratar
+as cargas e escritas como independentes.
+</p>
+
+<h3>2.2 Ordem de iteração i&nbsp;&rarr;&nbsp;k&nbsp;&rarr;&nbsp;j</h3>
+<p>
+O laço mais interno percorre as colunas de uma linha inteira de <code>C</code> e da linha correspondente de
+<code>B</code>, com passo 1. Três propriedades justificam essa ordem:
+</p>
+<ul>
+    <li><b>Vetorização sem reassociação:</b> o laço interno <i>não</i> é uma redução — cada
+    <code>C[i][j]</code> acumula produtos distintos e independentes. Diferentemente da ordem
+    <code>i&rarr;j&rarr;k</code> (produto interno, que só vetoriza com reassociação e portanto exige
+    <code>-ffast-math</code>), o alvo <code>-O3</code> puro <b>já</b> vetoriza o laço
+    <code>i&rarr;k&rarr;j</code>, como a seção 6 confirma empiricamente;</li>
+    <li><b>Reúso do escalar:</b> <code>aik</code> sai da memória uma vez por par (i,&nbsp;k) e alimenta
+    <i>N</i> multiplicações a partir de um registrador (no alvo <code>fast</code>, difundido para todas as
+    <i>lanes</i> vetoriais);</li>
+    <li><b>Localidade:</b> <code>B</code> e <code>C</code> são varridas com passo 1 (linhas contíguas, sem
+    penalidade de <i>stride</i>), e a linha de <code>C</code> em construção — 16 KiB para N&nbsp;=&nbsp;4000 —
+    permanece quente na L1d (32 KiB) ao longo de todo o laço <i>k</i>.</li>
+</ul>
+
+<h3>2.3 Peeling de alinhamento de 32 bytes</h3>
+<p>
+Como N é dinâmico, o GCC não consegue provar que o início de cada linha <code>C[i]</code>
+(<code>c + i&middot;N</code>) está alinhado, e por padrão emitiria apenas cargas/escritas não alinhadas. Para
+obter instruções alinhadas sem abrir mão da correção para qualquer N (inclusive ímpar), o laço interno abre
+um prólogo que avança <code>ci</code> até a fronteira de 32 bytes e marca o restante do corpo com
+<code>__builtin_assume_aligned(..., 32)</code>:
+</p>
+<pre>/* prólogo: quantos floats faltam para a próxima fronteira de 32 bytes */
+const size_t prologo = (size_t)((32u - ((uintptr_t)ci &amp; 31u)) &amp; 31u) / sizeof(float);
+size_t j = 0;
+for (; j &lt; prologo &amp;&amp; j &lt; N; j++) ci[j] += aik * bk[j];
+
+float       *restrict cj = __builtin_assume_aligned(ci + j, 32);  /* provado alinhado */
+const float *restrict bj = bk + j;
+for (uint64_t r = 0; j + r &lt; N; r++) cj[r] += aik * bj[r];</pre>
+<p>
+O resultado é exatamente o esperado: no alvo <code>fast</code> o compilador emite <code>vmovaps</code>
+(escrita alinhada) para <code>C</code>, mantendo <code>vmovups</code> para <code>B</code> — que continua sem
+garantia de alinhamento para N arbitrário. Essa assimetria é segura e barata: em microarquiteturas modernas
+cargas não alinhadas que não cruzam linhas de cache têm o mesmo custo das alinhadas.
+</p>
+
+<h3>2.4 E/S: formatos, validação e a decisão das fwrite</h3>
+<p>
+O utilitário <code>csv2bin</code> aloca um buffer único de <code>16 + M&middot;N&middot;4</code> bytes, grava o
+cabeçalho nos primeiros 16 e preenche o payload a partir do deslocamento 16 — a gravação em disco é então
+<b>uma única <code>fwrite</code></b>, sem cópias intermediárias, como pede o enunciado. No <code>matmul</code>, a
+escrita de <code>C</code> usa duas <code>fwrite</code> (cabeçalho e payload): forçar uma única chamada exigiria
+ou desalinhar o payload (offset 16 não é múltiplo de 32) ou pagar um <code>memcpy</code> de até 64 MB dentro do
+<code>TEMPO_IO</code> — ambos piores que a segunda chamada, que o <i>stdio</i> já amortiza no próprio buffer.
+</p>
+<p>
+A leitura valida o cabeçalho e compara o tamanho real do arquivo (<code>fstat</code>) com
+<code>16 + M&middot;N&middot;4</code> <i>antes</i> de alocar, rejeitando arquivos truncados ou com dimensões
+absurdas. Dimensões incompatíveis no <code>matmul</code> (A.n &ne; B.m) produzem mensagem em
+<code>stderr</code> e código de saída 1, sem nada em <code>stdout</code>; a linha padronizada de métricas sai
+sempre sozinha, formatada com 6 casas para tempos e 4 para GFLOPS.
+</p>
+
+<h3>2.5 Flags de compilação e a descoberta do <code>-ffp-contract</code></h3>
+<p>
+Os quatro alvos exigidos usam as flags literais do enunciado, mais um conjunto comum:
+<code>-std=c11 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic</code>. Um ponto mereceu atenção
+experimental: em modo ISO C11 o GCC desliga por padrão a <b>contratação de FMA</b>
+(<code>-ffp-contract=off</code>) — sem intervenção, até o alvo <code>fast</code> emitiria pares
+<code>vmulps</code>+<code>vaddps</code> em vez de <code>vfmadd*ps</code>, contrariando a análise de código de
+máquina esperada. Por isso <code>-ffp-contract=fast</code> integra o conjunto comum dos quatro alvos; o
+contraste com <code>-ffp-contract=off</code> fica documentado no <code>README</code> como experimento
+complementar. O binário <code>matmul_fast</code> só roda na máquina em que foi compilado
+(<code>-march=native</code>) e é por isso arquivado em <code>maquinas/aluno1/bin/</code> para rastreabilidade.
+</p>
+
+<h2>3. Metodologia experimental</h2>
+<p>
+O cronômetro é <code>clock_gettime(CLOCK_MONOTONIC)</code> (resolução de nanossegundos, imune a ajustes de
+relógio). Duas métricas são reportadas: <b>TEMPO_IO</b> (leitura de A, leitura de B e escrita de C, incluindo
+abertura/fechamento; alocação excluída) e <b>TEMPO_COMP</b> (intervalo estrito do laço computacional),
+com <code>GFLOPS = 2&middot;M&middot;K&middot;N / (TEMPO_COMP&middot;10<sup>9</sup>)</code>. O protocolo do
+benchmark busca controlar as principais fontes de ruído de uma CPU móvel de 15 W:
+</p>
+<ul>
+    <li><b>Repetições intercaladas</b> por alvo e ordem (base, o2, o3, fast em sequência, repetindo), para
+    diluir efeitos de turbo e térmica; <b>mediana</b> calculada na análise (todas as execuções ficam no CSV);</li>
+    <li><b>Aquecimento descartado</b>: uma passada completa em cada alvo antes das medições (cache de página
+    e de instruções);</li>
+    <li><b>Fixação de CPU</b> com <code>taskset -c 2</code> e governor <code>performance</code> (ativo na máquina);</li>
+    <li><b><code>sync</code> antes de cada medição</b> (fora do intervalo cronometrado): a primeira rodada
+    mostrou que commits de transação e o <i>writeback</i> do btrfs caíam dentro do <code>TEMPO_IO</code> e
+    dominavam a variância; com o <code>sync</code>, a dispersão do <code>TEMPO_IO</code> entre alvos nas
+    ordens 2000/4000 caiu para 1,04–1,42&times;.</li>
+</ul>
+<p>
+Limitações assumidas: as leituras medem o caminho <b>quente</b> (page cache — 630 MB de dados em 7,6 GiB de
+RAM), que é a definição convencional de tempo de carga/escrita e a mais comparável; e a máquina é única
+(grupo de 1 integrante), de modo que a análise multi-hardware do enunciado reduz-se à caracterização desta
+CPU e à extrapolação dos efeitos de AVX2/FMA e da hierarquia de cache.
+</p>
+
+<h3>3.1 Caracterização da máquina</h3>
+<table class="dados">
+    <caption>Tabela 1 — Perfil da máquina (coleta em <code>maquinas/aluno1/specs/</code>).</caption>
+    <tr><th>Item</th><th>Valor</th><th>Item</th><th>Valor</th></tr>
+    <tr><td>Processador</td><td>Intel Core i5-10210U</td><td>L1d / L1i</td><td>32 KiB / 32 KiB por núcleo</td></tr>
+    <tr><td>Microarquitetura</td><td>Comet Lake-U (10ª geração)</td><td>L2</td><td>256 KiB por núcleo (1 MiB total)</td></tr>
+    <tr><td>Núcleos / threads</td><td>4 / 8, 1 socket</td><td>L3</td><td>6 MiB compartilhado</td></tr>
+    <tr><td>Frequência base / máx.</td><td>1,60 GHz / 4,20 GHz</td><td>Extensões</td><td>SSE4.2, AVX2, FMA (sem AVX-512)</td></tr>
+    <tr><td>Memória</td><td>7,6 GiB (4,7 GiB livres na coleta)</td><td>Compilador</td><td>GCC 16.2.1, <code>-march=native</code> &rarr; skylake</td></tr>
+</table>
+
+<h2>4. Comparativo de E/S: CSV × binário</h2>
+<p>
+A Tabela 2 consolida as conversões (medianas) e a Figura 1 mostra os tempos e a vazão efetiva por lado. O
+CSV ocupa 2,375&times; o tamanho do binário na ordem 4000 (152,0 MB contra 64,0 MB), mas a diferença de tempo
+é <i>maior</i> que a de bytes — e no sentido menos óbvio: <code>csv2bin</code> (lê 152 MB de texto, grava
+64 MB) é <b>mais rápido</b> que <code>bin2csv</code> (lê 64 MB, grava 152 MB de texto). A explicação é o custo
+de serialização: <code>strtof</code> na entrada contra <code>snprintf("%.6f")</code> na saída. A formatação
+decimal, que exige arredondamento e conversão binário&rarr;decimal por valor, é o gargalo dominante — não os
+bytes trafegados.
+</p>
+<table class="dados">
+    <caption>Tabela 2 — Conversões (medianas; 6 execuções para csv2bin — A e B — e 3 para bin2csv).</caption>
+    <tr><th>Ordem</th><th>Operação</th><th class="num">Tempo (s)</th><th class="num">Entrada (MB)</th>
+        <th class="num">Saída (MB)</th><th class="num">Vazão total (MB/s)</th></tr>
+    <tr><td rowspan="2">1000&sup2;</td><td>csv2bin</td><td class="num">0,123</td><td class="num">9,50</td><td class="num">4,00</td><td class="num">109,8</td></tr>
+    <tr><td>bin2csv</td><td class="num">0,187</td><td class="num">4,00</td><td class="num">9,50</td><td class="num">72,3</td></tr>
+    <tr><td rowspan="2">2000&sup2;</td><td>csv2bin</td><td class="num">0,490</td><td class="num">38,0</td><td class="num">16,0</td><td class="num">110,3</td></tr>
+    <tr><td>bin2csv</td><td class="num">0,749</td><td class="num">16,0</td><td class="num">38,0</td><td class="num">72,1</td></tr>
+    <tr><td rowspan="2">4000&sup2;</td><td>csv2bin</td><td class="num">1,880</td><td class="num">152,0</td><td class="num">64,0</td><td class="num">114,9</td></tr>
+    <tr><td>bin2csv</td><td class="num">2,926</td><td class="num">64,0</td><td class="num">152,0</td><td class="num">73,8</td></tr>
+</table>
+<figure>
+    <img src="../figuras/io_csv_vs_bin_aluno1.png" alt="E/S: CSV vs binário">
+    <figcaption>Figura 1 — Esquerda: tempo de parede das conversões. Direita: vazão efetiva separando o lado
+    texto (CSV) do lado binário — as barras “lê CSV/grava CSV” são consistentemente mais lentas que as do lado
+    binário, evidenciando que o custo está na serialização textual, não no volume.</figcaption>
+</figure>
+<p>
+Para o pipeline de multiplicação, o impacto prático é direto: com o formato binário, o <code>TEMPO_IO</code>
+medido pelo <code>matmul</code> na ordem 4000 (ler A + ler B + gravar C) fica em torno de <b>0,24 s</b> para
+192 MB movimentados; converter os mesmos dados de/para CSV custaria 1,9–2,9 s por arquivo — uma ordem de
+grandeza a mais. O binário é, portanto, o formato correto para o caminho quente, com o CSV reservado à
+interoperabilidade e à auditoria.
+</p>
+
+<h2>5. Desempenho do produto matricial</h2>
+<table class="dados">
+    <caption>Tabela 3 — Medianas por ordem e alvo (n = 3 execuções; base@4000 com n = 1 por custo de ~166 s).</caption>
+    <tr><th>Ordem</th><th>Métrica</th><th class="num">base (–O0)</th><th class="num">o2 (–O2)</th>
+        <th class="num">o3 (–O3)</th><th class="num">fast (–march=native)</th></tr>
+    <tr><td rowspan="3">1000&sup2;</td><td>TEMPO_COMP (s)</td><td class="num">2,131</td><td class="num">0,409</td><td class="num">0,154</td><td class="num">0,092</td></tr>
+    <tr><td>GFLOPS</td><td class="num">0,94</td><td class="num">4,89</td><td class="num">12,95</td><td class="num">21,66</td></tr>
+    <tr><td>speedup</td><td class="num">1,0&times;</td><td class="num">5,2&times;</td><td class="num">13,8&times;</td><td class="num">23,1&times;</td></tr>
+    <tr><td rowspan="3">2000&sup2;</td><td>TEMPO_COMP (s)</td><td class="num">22,190</td><td class="num">5,105</td><td class="num">2,368</td><td class="num">2,040</td></tr>
+    <tr><td>GFLOPS</td><td class="num">0,72</td><td class="num">3,13</td><td class="num">6,76</td><td class="num">7,84</td></tr>
+    <tr><td>speedup</td><td class="num">1,0&times;</td><td class="num">4,3&times;</td><td class="num">9,4&times;</td><td class="num">10,9&times;</td></tr>
+    <tr><td rowspan="3">4000&sup2;</td><td>TEMPO_COMP (s)</td><td class="num">166,122</td><td class="num">38,632</td><td class="num">19,047</td><td class="num">17,565</td></tr>
+    <tr><td>GFLOPS</td><td class="num">0,77</td><td class="num">3,31</td><td class="num">6,72</td><td class="num">7,29</td></tr>
+    <tr><td>speedup</td><td class="num">1,0&times;</td><td class="num">4,3&times;</td><td class="num">8,7&times;</td><td class="num">9,5&times;</td></tr>
+</table>
+<figure>
+    <img src="../figuras/gflops_por_alvo_aluno1.png" alt="GFLOPS por alvo e ordem">
+    <figcaption>Figura 2 — Vazão por alvo em cada ordem (medianas). Cada painel tem escala própria — a
+    comparação válida é entre alvos <i>dentro</i> de uma ordem.</figcaption>
+</figure>
+<figure>
+    <img src="../figuras/tempo_comp_por_alvo_aluno1.png" alt="TEMPO_COMP por alvo e ordem">
+    <figcaption>Figura 3 — TEMPO_COMP em segundos. Na ordem 4000, o alvo <code>base</code> leva
+    166 s contra 17,6 s do <code>fast</code> — quase três minutos contra dezoito segundos.</figcaption>
+</figure>
+
+<h3>5.1 Leitura dos resultados: três regimes</h3>
+<p>
+<b>(a) Otimização escalar (base &rarr; o2, ~4,3–5,2&times;).</b> É o efeito clássico de tirar as variáveis da
+pilha: em <code>-O0</code> cada acesso a <code>aik</code>, <code>j</code> e aos ponteiros é uma recarga da
+memória (seção 6), e o laço consome 4–5 instruções de “contabilidade” por operação aritmética. Em
+<code>-O2</code>, domínio de registradores e <i>inlining</i> eliminam quase toda essa sobrecarga, mas o
+código permanece <b>escalar</b> (<code>mulss</code>/<code>addss</code>) — o salto de vazão vem de menos
+instruções por FLOP, não de paralelismo de dados.
+</p>
+<p>
+<b>(b) Vetorização SSE2 (o2 &rarr; o3, ~2,0–2,6&times;).</b> O <code>-O3</code> ativa o
+<i>tree-vectorizer</i>, que processa 4 floats por instrução <code>mulps</code>/<code>addps</code> (SSE2,
+128 bits) — a largura máxima garantida pela base x86-64, já que <b>não</b> há <code>-march</code>. O ganho de
+~2,3&times; contra <code>-O2</code> é consistente com a largura dobrada do vetor somada à redução do custo de
+laço (desenrolamento implícito).
+</p>
+<p>
+<b>(c) AVX2 + FMA e o limite de memória (o3 &rarr; fast: 1,67&times; em 1000&sup2;, 1,16&times; em 2000&sup2;,
+1,08&times; em 4000&sup2;).</b> A ordem 1000 é o regime que favorece o hardware nativo: o conjunto de
+trabalho (A + B + C = 12 MB) cabe majoritariamente no L3 de 6 MiB (a matriz B, de 4 MB, fica residente), e o
+<code>fast</code> troca 4 floats/instrução por 8 (AVX2, 256 bits) <i>e</i> funde multiplicação e soma numa só
+<code>vfmadd*ps</code> — atingindo 21,7 GFLOPS (23,1&times; o base). Nas ordens 2000 e 4000, porém, o
+problema muda de regime: as matrizes somam 48 MB e 192 MB, contra 6 MiB de L3, e o tráfego dominante passa a
+ser a releitura de B a cada linha de A (M&nbsp;&times;&nbsp;K&nbsp;&times;&nbsp;N&nbsp;&times;&nbsp;4 B
+&asymp; 256 GB por execução na ordem 4000). Com ~7,3 GFLOPS a 6 B/FLOP no caminho memória–registrador
+(2 leituras + 1 escrita), o kernel exige &asymp; 15–30 GB/s efetivos — na fronteira da banda DDR4 da máquina.
+Resultado: SSE2 (<code>o3</code>) já satura o subsistema de memória e o AVX2/FMA quase não agrega
+(1,08&times;). A Figura 4 evidencia a consequência prática dessa análise.
+</p>
+<figure>
+    <img src="../figuras/tempo_io_por_alvo_aluno1.png" alt="TEMPO_IO por alvo e ordem">
+    <figcaption>Figura 4 — TEMPO_IO por alvo: praticamente constante dentro de cada ordem
+    (0,020–0,026 s; 0,057–0,064 s; 0,226–0,245 s), confirmando que o tempo de E/S é independente do nível de
+    otimização e que a aceleração medida está confinada ao TEMPO_COMP.</figcaption>
+</figure>
+
+<h3>5.2 Consistência e divergência numérica</h3>
+<p>
+<b>Determinismo.</b> Os alvos <code>base</code>, <code>o2</code> e <code>o3</code> produzem resultados
+<b>bit-idênticos</b> nas três ordens (verificação exaustiva com <code>scripts/comparar_saidas.py</code>):
+a vetorização do laço interno não reassocia a acumulação em <code>k</code>, apenas paraleliza elementos
+independentes em <code>j</code> — exatamente o que a escolha da ordem i&rarr;k&rarr;j garante.
+<b>Fast-math.</b> O alvo <code>fast</code> difere do <code>base</code> em no máximo
+<b>5,3&middot;10<sup>-5</sup></b> absoluto na ordem 4000 (valores típicos de magnitude ~14, ou seja,
+&asymp;4&middot;10<sup>-6</sup> relativo ao valor típico) — assinatura esperada de FMA (arredondamento único)
+e de reassociação parcial na cadeia de acumulação. Desvios relativos grandes (&gt; 1%) ocorrem apenas em
+elementos cujo resultado verdadeiro é próximo de zero, onde a razão entre erro absoluto e magnitude explode;
+a tolerância relevante para K = 4000 é absoluta (erro da ordem de K&middot;&epsilon;&middot;|termo|), não
+puramente relativa.
+</p>
+<h3>5.3 Térmica, variância e o efeito do <code>sync</code></h3>
+<p>
+Como esperado numa CPU de 15 W, as repetições individuais oscilam: no alvo <code>fast</code> em 1000&sup2;,
+por exemplo, observam-se 20,6–24,7 GFLOPS entre repetições (&asymp;18% de dispersão), efeito de turbo e da
+temperatura acumulada. As medianas e o intercalamento reduzem o risco de viés sistemático, mas o relatório
+registra a dispersão como incerteza de medição. A variância do <code>TEMPO_IO</code> mereceu tratamento à
+parte: a primeira rodada apresentou dispersão de até 5,5&times; entre alvos na mesma ordem, causada por
+commits do btrfs e <i>throttling</i> de páginas sujas incidindo sobre as escritas; com <code>sync</code>
+antes de cada medição, a dispersão caiu para 1,04–1,42&times; nas ordens maiores (Figura 4).
+</p>
+
+<h2>6. Dissecação do código de máquina</h2>
+<p>
+Os trechos abaixo foram extraídos das desmontagens em <code>maquinas/aluno1/asm/</code>
+(endereços e bytes omitidos para legibilidade). As contagens completas por arquivo, produzidas por
+<code>scripts/gerar_asm.sh</code>, são: referências à pilha (<code>[rbp-...]</code>) <b>218</b> no
+<code>base</code> contra <b>6</b> no <code>fast</code>; no <code>fast</code>, <b>20</b> <code>vmovaps</code>
+e <b>18</b> <code>vfmadd*ps</code>, com <b>zero</b> <code>mulps</code>/<code>addps</code> remanescentes.
+</p>
+
+<h3>6.1 <code>-O0</code>: tudo na pilha, por construção</h3>
+<p>
+No binário sem otimização, cada variável mora na memória: os endereços de <code>B</code>, <code>C</code> e o
+escalar <code>aik</code> são recarregados da pilha a cada iteração, e até o incremento de <code>j</code> é um
+<i>read-modify-write</i> em memória:
+</p>
+<pre><span class="rot">; laço interno (prólogo do peeling) — matmul_base</span>
+mov   rax,QWORD PTR [rbp-0x18]      <span class="rot">; j</span>
+lea   rdx,[rax*4+0x0]
+mov   rax,QWORD PTR [rbp-0x70]      <span class="rot">; endereço-base de B[k]</span>
+add   rax,rdx
+movss xmm0,DWORD PTR [rax]          <span class="rot">; B[k][j]</span>
+mulss xmm0,DWORD PTR [rbp-0x64]     <span class="rot">; * aik — RECARREGADO DA PILHA toda iteração</span>
+mov   rax,QWORD PTR [rbp-0x18]
+lea   rdx,[rax*4+0x0]
+mov   rax,QWORD PTR [rbp-0x60]      <span class="rot">; endereço-base de C[i]</span>
+add   rax,rdx
+addss xmm0,xmm1                     <span class="rot">; + C[i][j] (mantido em xmm1 pelo prólogo)</span>
+movss DWORD PTR [rax],xmm0          <span class="rot">; C[i][j] = resultado</span>
+add   QWORD PTR [rbp-0x18],0x1      <span class="rot">; j++ — na memória</span>
+cmp   rax,QWORD PTR [rbp-0x78]
+jae   ...</pre>
+<p>
+São 4 instruções de aritmética de endereços e ~6 acessos à pilha para cada <code>mulss</code>+<code>addss</code>:
+o gargalo é o próprio tráfego de pilha e o AGU, não a FPU. É o retrato didático do que a otimização
+posterior remove.
+</p>
+
+<h3>6.2 <code>-O3</code>: vetorização SSE2 a 128 bits</h3>
+<pre><span class="rot">; corpo principal — matmul_o3 (SSE2, 4 floats/iteração)</span>
+movups xmm0,XMMWORD PTR [r8+rax*1]   <span class="rot">; B[k][j..j+3]</span>
+mulps  xmm0,xmm2                     <span class="rot">; * aik (difundido em xmm2)</span>
+addps  xmm0,XMMWORD PTR [rdx+rax*1]  <span class="rot">; + C[i][j..j+3] (operando direto da memória)</span>
+movaps XMMWORD PTR [rdx+rax*1],xmm0  <span class="rot">; C = resultado — ALINHADO (movaps), graças ao peeling</span>
+add    rax,0x10                      <span class="rot">; 16 bytes = 4 floats</span>
+cmp    rax,rdi
+jne    ...</pre>
+<p>
+Três observações: (i) o vetorizador <b>funcionou sem <code>-ffast-math</code></b>, confirmando a tese da
+seção 2.2 de que a ordem i&rarr;k&rarr;j evita redução vetorial; (ii) a carga de <code>C</code> foi fundida
+como operando de memória do <code>addps</code>; (iii) mesmo sem <code>-march</code>, a escrita alinhada
+(<code>movaps</code>) apareceu porque o peeling garante a propriedade que o compilador pode provar
+independentemente de N.
+</p>
+
+<h3>6.3 <code>-march=native</code>: AVX2 + FMA, com desenrolamento</h3>
+<p>
+No alvo nativo, o laço passa a processar 8 floats por instrução, o escalar <code>aik</code> é difundido numa
+vez (<code>ymm15</code>/<code>ymm2</code>) e cada atualização de linha vira uma única FMA com o operando de
+<code>C</code> lido direto da memória; o laço é desenrolado em blocos de quatro vetores (32 floats),
+com acumuladores independentes (<code>ymm3</code>–<code>ymm11</code>) para quebrar a cadeia de dependência, e
+epílogo com tabela de saltos para o resto:
+</p>
+<pre><span class="rot">; corpo principal — matmul_fast (AVX2 + FMA, 8 floats/instrução)</span>
+vmovups    ymm0,YMMWORD PTR [rcx]           <span class="rot">; B[k][j..j+7] (carga não alinhada — B não tem garantia p/ N ímpar)</span>
+vfmadd213ps ymm0,ymm2,YMMWORD PTR [rdx]     <span class="rot">; ymm0 = aik*ymm0 + C[i][j..j+7]  (C lido direto da memória)</span>
+vmovaps    YMMWORD PTR [rdx],ymm0           <span class="rot">; C[i][j..j+7] — escrita ALINHADA (vmovaps)</span>
+add        rax,0x20                         <span class="rot">; 32 bytes = 8 floats</span>
+vmovups    ymm5,YMMWORD PTR [rcx+rax*1]
+vfmadd213ps ymm5,ymm15,YMMWORD PTR [rdx+rax*1]
+vmovaps    YMMWORD PTR [rdx+rax*1],ymm5
+...
+cmp        rdi,0x3 / 0x4 / 0x5 / 0x6        <span class="rot">; epílogo: tabela de saltos para 1..7 floats restantes</span>
+je         ...</pre>
+<div class="duas-col" style="margin-top:3mm">
+    <div>
+        <div class="titulo">-O0 — operação por operação, via pilha</div>
+        <pre>mulss xmm0,DWORD PTR [rbp-0x64]
+addss xmm0,xmm1
+movss DWORD PTR [rax],xmm0
+add   QWORD PTR [rbp-0x18],0x1</pre>
+    </div>
+    <div>
+        <div class="titulo">-march=native — 8 floats por FMA, tudo em registradores</div>
+        <pre>vmovups    ymm0,[rcx]
+vfmadd213ps ymm0,ymm2,[rdx]
+vmovaps    [rdx],ymm0
+add rax,0x20</pre>
+    </div>
+</div>
+<p style="margin-top:2.5mm">
+A comparação lado a lado resume a ação do otimizador nesta CPU: (1º) eliminação total do trânsito pela pilha
+(218 &rarr; 6 referências); (2º) difusão do escalar e fusão carga&times;soma na FMA
+(<code>vfmadd213ps</code> com operando de memória), reduzindo de duas para uma o arredondamento por MAC;
+(3º) largura de 8 floats (YMM) e desenrolamento de 4 vetores; (4º) escritas alinhadas
+(<code>vmovaps</code>) habilitadas pelo peeling explícito, com cargas não alinhadas (<code>vmovups</code>)
+onde a garantia não existe — e sem penalidade prática na microarquitetura.
+</p>
+
+<h2>7. Limitações e trabalhos futuros</h2>
+<ul>
+    <li><b>Uma única máquina.</b> O grupo tem 1 integrante; a comparação multi-hardware do enunciado fica
+    limitada ao perfil da Tabela 1. Como o <code>matmul_o3</code> (SSE2, sem <code>-march</code>) é portável,
+    ele serve de referência comum para eventuais comparações futuras;</li>
+    <li><b>Page cache quente.</b> As leituras não medem o disco físico; medir o caminho frio exigiria
+    <code>drop_caches</code> privilegiado e tornaria as execuções não reprodutíveis em máquinas diferentes;</li>
+    <li><b>Sem <i>blocking</i>.</b> O algoritmo é o produto triplo direto. Para N grande, a releitura de B
+    (seção 5.1c) domina; o próximo passo natural é blocagem por tiles (Goto/OpenBLAS), com ganhos esperados
+    exatamente na ordem 4000, onde o kernel é limitado por memória;</li>
+    <li><b>Sem paralelismo.</b> Todos os alvos usam uma única thread; <code>taskset -c 2</code> foi escolhido
+    justamente para estabilizar a medição. OpenMP/Pthreads seria o eixo seguinte de estudo;</li>
+    <li><b>Sem contadores de hardware.</b> A análise de saturação de banda na seção 5.1c é derivada dos
+    tempos e do modelo de tráfego, não de <code>perf</code> (indisponível no ambiente).</li>
+</ul>
+
+<h2>8. Conclusões</h2>
+<p>
+O experimento quantifica com clareza as três alavancas. O formato binário reduziu o custo do caminho quente
+em cerca de uma ordem de grandeza (0,24 s contra 1,9–2,9 s por arquivo na ordem 4000), e a análise mostrou
+que o gargalo do CSV não é o volume de bytes, mas a serialização decimal. A otimização escalar rendeu
+4,3–5,2&times;; a vetorização automática do <code>-O3</code>, mais 2,0–2,6&times;, <i>sem</i> depender de
+<code>-ffast-math</code> — mérito direto da ordem de laços i&rarr;k&rarr;j adotada. O conjunto
+AVX2+FMA+desenrolamento levou o ganho total a <b>23,1&times;</b> na ordem 1000 (21,7 GFLOPS), mas apenas
+<b>9,5&times;</b> na ordem 4000, porque a partir de 2000 o kernel sai do cache e passa a ser limitado pela
+banda de memória: SSE2 já satura o subsistema, e 8 floats por FMA não compram mais vazão. A dissecação do
+código de máquina fecha a cadeia causal: as 218 referências à pilha do <code>-O0</code> viram 6 no
+<code>-march=native</code>, com 18 FMA vetoriais e 20 escritas alinhadas — o peeling de 32 bytes, exigido
+pela dinamicidade de N, foi o que permitiu ao GCC provar o alinhamento e empregar <code>vmovaps</code>.
+Restam como continuidade natural a blocagem (para atacar o regime limitado por memória) e o paralelismo.
+</p>
+
+<h2>Referências e artefatos</h2>
+<ul style="font-size:8.8pt">
+    <li>Enunciado do trabalho — <code>Projeto_Implementacao_Produto_Interno.md</code>.</li>
+    <li>Intel Corporation. <i>Intel 64 and IA-32 Architectures Optimization Reference Manual</i>. (FMA, AVX2 e
+    alinhamento de memória.)</li>
+    <li>Fog, A. <i>Optimizing software in C++</i> / <i>Instruction tables</i> — guias clássicos de otimização
+    para x86.</li>
+    <li>Drepper, U. <i>What Every Programmer Should Know About Memory</i> (2007) — modelo de hierarquia de cache
+    usado na seção 5.1.</li>
+    <li>Artefatos desta máquina: <code>maquinas/aluno1/{specs,asm,bin}/</code>,
+    <code>maquinas/aluno1/benchmark_aluno1.csv</code> (61 medições), <code>figuras/</code>, <code>tabelas/</code>.
+    Reprodução integral: <code>make entrega &amp;&amp; make relatorio</code>.</li>
+</ul>
+
+<h2>Apêndice A — Estrutura do pacote e reprodução</h2>
+<pre>trabalho_pratico/
+├── Makefile            alvos do enunciado + fluxos (specs, asm, bench, graficos, relatorio)
+├── src/                matmul.c, csv2bin.c, bin2csv.c, matriz.{c,h}, bin.{c,h}, csv.{c,h}, timer.h
+├── scripts/            gerar_matrizes.py, bench.sh, coletar_specs.sh, gerar_asm.sh,
+│                       comparar_saidas.py, gerar_graficos.py, gerar_relatorio.sh
+├── dados/              matrizes de teste, formato CSV e binário (gerado; ~1,1 GB)
+├── figuras/  tabelas/  insumos deste relatório (gerado)
+├── relatorio/          relatorio.html — fonte deste PDF
+└── maquinas/aluno1/
+    ├── specs/          cpu_info_aluno1.txt, ram_info_aluno1.txt, gcc_info_aluno1.txt
+    ├── asm/            asm_base_aluno1.s, asm_fast_aluno1.s (+ anotados e laços isolados)
+    ├── bin/            matmul_base, matmul_o2, matmul_o3, matmul_fast
+    └── benchmark_aluno1.csv   61 medições (tipo, alvo, ordem, repetição, tempos, GFLOPS)</pre>
+<p>Reprodução integral a partir de um clone limpo:</p>
+<pre>make             # compila utilitários e os 4 binários do matmul (instalados em maquinas/aluno1/bin)
+make specs asm   # perfil da máquina e desmontagens comparativas
+make bench       # benchmark completo (~10 min; ORDENS, REPS e REPS_ORDEM são ajustáveis)
+make graficos    # figuras/ e tabelas/ (matplotlib; o .venv local é detectado automaticamente)
+make relatorio   # gera este PDF a partir de relatorio/relatorio.html (Chrome headless)</pre>
+
+<div class="rodape">
+Relatório gerado a partir dos dados coletados na máquina do integrante (aluno1) em 02/10/2026.
+Figuras e tabelas produzidas por <code>scripts/gerar_graficos.py</code>; desmontagens por
+<code>scripts/gerar_asm.sh</code>; benchmark por <code>scripts/bench.sh</code>.
+</div>
+
+</body>
+</html>
